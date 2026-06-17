@@ -23,6 +23,10 @@ vi.mock("./state/pl-state", () => ({
   writeState: vi.fn(),
   incrementErrorCount: vi.fn(),
   resetErrorCount: vi.fn(),
+  isPaused: vi.fn().mockResolvedValue(false),
+  setPaused: vi.fn(),
+  writeLastSuccess: vi.fn(),
+  readLastSuccess: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock("./utils/timezone", () => ({

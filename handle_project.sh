@@ -117,6 +117,18 @@ get_toml_proxy_url() {
   grep '^PROXY_URL' "$SCRIPT_DIR/wrangler.toml" | grep -v '^#' | sed 's/.*= *"\(.*\)".*/\1/'
 }
 
+# Returns the workers.dev base URL for the current worker.
+# Cached in .dev.vars as WORKER_URL after the first successful deploy.
+get_worker_url() {
+  local cached
+  cached=$(get_dev_var WORKER_URL)
+  if [[ -n "$cached" ]]; then
+    echo "$cached"
+    return
+  fi
+  fail "WORKER_URL non trovato in .dev.vars. Esegui prima: ./handle_project.sh deploy"
+}
+
 # Ensures wrangler is authenticated
 ensure_wrangler_auth() {
   if ! npx wrangler whoami &>/dev/null 2>&1; then
@@ -149,6 +161,13 @@ usage() {
   echo "  proxy-deploy       re-deploy proxy.php su Alwaysdata dopo modifiche"
   echo "  proxy-rotate       genera nuovo PROXY_SECRET e lo sincronizza ovunque"
   echo "  proxy-test         verifica che il proxy risponda correttamente"
+  echo ""
+  echo "  telegram-webhook-setup   attiva il webhook (bot risponde ai comandi Telegram)"
+  echo "  telegram-setup-commands  registra il menu / comandi nel bot Telegram"
+  echo "  telegram-test      testa bot (admin) e canale con un messaggio di prova"
+  echo "  pause              sospende il monitoring (senza undeploy)"
+  echo "  resume             riprende il monitoring"
+  echo "  status             invia report stato attuale via Telegram"
   echo ""
 }
 
@@ -292,6 +311,7 @@ case "$cmd" in
     ok "Worker deployato (v${VER})"
 
     if [[ -n "$WORKER_URL" ]]; then
+      set_dev_var "WORKER_URL" "$WORKER_URL"
       sleep 3
       notify_startup "$WORKER_URL"
     fi
@@ -359,6 +379,7 @@ case "$cmd" in
     ok "Deploy completato (v${VER})"
 
     if [[ -n "$WORKER_URL" ]]; then
+      set_dev_var "WORKER_URL" "$WORKER_URL"
       sleep 3
       notify_startup "$WORKER_URL"
     else
@@ -390,6 +411,101 @@ case "$cmd" in
     done
     echo ""
     warn "Copia i codici S-code in wrangler.toml (NICHELINO_CODE / CANDIOLO_CODE)"
+    ;;
+
+  # ---------------------------------------------------------------------------
+  # Telegram / operational commands
+  # ---------------------------------------------------------------------------
+
+  telegram-webhook-setup)
+    TG_TOKEN=$(get_dev_var TELEGRAM_TOKEN)
+    [[ -z "$TG_TOKEN" ]] && fail "TELEGRAM_TOKEN non in .dev.vars"
+    WORKER_URL=$(get_worker_url)
+    WEBHOOK_URL="${WORKER_URL}/webhook"
+    log "Registro webhook → $WEBHOOK_URL"
+    curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/setWebhook" \
+      -H "Content-Type: application/json" \
+      -d "{\"url\": \"${WEBHOOK_URL}\"}" | python3 -c "
+import json,sys
+d = json.load(sys.stdin)
+if d.get('ok'):
+    print('  ✓ Webhook attivo — scrivi /start al bot su Telegram')
+else:
+    print(f'  ✗ Errore: {d}')
+"
+    ;;
+
+  telegram-setup-commands)
+    TG_TOKEN=$(get_dev_var TELEGRAM_TOKEN)
+    [[ -z "$TG_TOKEN" ]] && fail "TELEGRAM_TOKEN non in .dev.vars"
+    log "Registro comandi menu nel bot..."
+    curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/setMyCommands" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "commands": [
+          {"command": "status",  "description": "Stato attuale PL e monitoring"},
+          {"command": "pause",   "description": "Sospendi monitoring"},
+          {"command": "resume",  "description": "Riprendi monitoring"},
+          {"command": "start",   "description": "Avvia il bot"}
+        ]
+      }' | python3 -c "
+import json,sys
+d = json.load(sys.stdin)
+if d.get('ok'):
+    print('  ✓ Comandi registrati — apri il bot e premi /')
+else:
+    print(f'  ✗ Errore: {d}')
+"
+    ;;
+
+  telegram-test)
+    WORKER_URL=$(get_worker_url)
+
+    log "Test bot (admin) → ${WORKER_URL}/test-bot"
+    CODE=$(curl -s -o /dev/null -w "%{http_code}" "${WORKER_URL}/test-bot")
+    [[ "$CODE" == "200" ]] && ok "Bot OK — controlla Telegram" || warn "Bot: HTTP $CODE"
+
+    log "Test canale → ${WORKER_URL}/test-channel"
+    CODE=$(curl -s -o /dev/null -w "%{http_code}" "${WORKER_URL}/test-channel")
+    [[ "$CODE" == "200" ]] && ok "Canale OK — controlla Telegram" || warn "Canale: HTTP $CODE"
+
+    TG_TOKEN=$(get_dev_var TELEGRAM_TOKEN)
+    if [[ -n "$TG_TOKEN" ]]; then
+      log "getUpdates — ultimi messaggi ricevuti dal bot..."
+      curl -s "https://api.telegram.org/bot${TG_TOKEN}/getUpdates" | python3 -c "
+import json,sys
+d = json.load(sys.stdin)
+results = d.get('result', [])
+if not results:
+    print('  Nessun messaggio recente (manda /start al bot e riprova)')
+else:
+    for u in results[-5:]:
+        msg = u.get('message', u.get('channel_post', {}))
+        chat = msg.get('chat', {})
+        print(f'  chat_id={chat.get(\"id\")} type={chat.get(\"type\")} name={chat.get(\"title\") or chat.get(\"username\",\"?\")}: {msg.get(\"text\",\"\")}')
+" 2>/dev/null || warn "Errore parsing getUpdates"
+    else
+      warn "TELEGRAM_TOKEN non in .dev.vars — skip getUpdates"
+      warn "Aggiungilo con: echo 'TELEGRAM_TOKEN=...' >> .dev.vars"
+    fi
+    ;;
+
+  pause)
+    WORKER_URL=$(get_worker_url)
+    CODE=$(curl -s -o /dev/null -w "%{http_code}" "${WORKER_URL}/pause")
+    [[ "$CODE" == "200" ]] && ok "Monitoring sospeso — notifica Telegram inviata" || warn "HTTP $CODE"
+    ;;
+
+  resume)
+    WORKER_URL=$(get_worker_url)
+    CODE=$(curl -s -o /dev/null -w "%{http_code}" "${WORKER_URL}/resume")
+    [[ "$CODE" == "200" ]] && ok "Monitoring ripreso — notifica Telegram inviata" || warn "HTTP $CODE"
+    ;;
+
+  status)
+    WORKER_URL=$(get_worker_url)
+    CODE=$(curl -s -o /dev/null -w "%{http_code}" "${WORKER_URL}/status")
+    [[ "$CODE" == "200" ]] && ok "Status inviato via Telegram" || warn "HTTP $CODE"
     ;;
 
   # ---------------------------------------------------------------------------

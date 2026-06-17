@@ -3,8 +3,12 @@ import { isApproaching } from "./detector/approach";
 import { sendTelegram } from "./notifier/telegram";
 import {
   incrementErrorCount,
+  isPaused,
+  readLastSuccess,
   readState,
   resetErrorCount,
+  setPaused,
+  writeLastSuccess,
   writeState,
 } from "./state/pl-state";
 import type { WorkerEnv } from "./types";
@@ -13,6 +17,13 @@ import { getRomeMidnightMs, isActiveHour } from "./utils/timezone";
 const STATE_TTL = 900; // seconds (15 min)
 const ERROR_ALERT_THRESHOLD = 3;
 
+function formatLastSuccess(last: { ts: number; elapsed: number } | null): string {
+  if (!last) return "mai";
+  const agoMin = Math.round((Date.now() - last.ts) / 60_000);
+  const agoStr = agoMin === 0 ? "< 1 min fa" : `${agoMin} min fa`;
+  return `${agoStr} (${last.elapsed}ms)`;
+}
+
 export default {
   async fetch(
     request: Request,
@@ -20,8 +31,8 @@ export default {
     _ctx: ExecutionContext
   ): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname === "/startup") {
-      try {
+    try {
+      if (url.pathname === "/startup") {
         const version = env.DEPLOY_VERSION ?? "unknown";
         const chatId = env.ADMIN_CHAT_ID || env.TELEGRAM_CHAT_ID;
         await sendTelegram(
@@ -30,11 +41,97 @@ export default {
           chatId
         );
         return new Response("ok");
-      } catch (err) {
-        console.error("[startup] errore notifica:", String(err));
-        return new Response(String(err), { status: 500 });
       }
+
+      if (url.pathname === "/pause") {
+        await setPaused(env, true);
+        await sendTelegram(env, "⏸ Monitoring sospeso", env.ADMIN_CHAT_ID || env.TELEGRAM_CHAT_ID);
+        console.log("[op] monitoring sospeso via HTTP");
+        return new Response("paused");
+      }
+
+      if (url.pathname === "/resume") {
+        await setPaused(env, false);
+        await sendTelegram(env, "▶️ Monitoring ripreso", env.ADMIN_CHAT_ID || env.TELEGRAM_CHAT_ID);
+        console.log("[op] monitoring ripreso via HTTP");
+        return new Response("resumed");
+      }
+
+      if (url.pathname === "/status") {
+        const [state, paused, last] = await Promise.all([readState(env), isPaused(env), readLastSuccess(env)]);
+        const version = env.DEPLOY_VERSION ?? "unknown";
+        const text = [
+          `📊 Status PL Via Dega`,
+          `Versione: ${version}`,
+          `Monitoring: ${paused ? "⏸ sospeso" : "▶️ attivo"}`,
+          `PL state: ${state ?? "sconosciuto"}`,
+          `Ultima chiamata VT: ${formatLastSuccess(last)}`,
+        ].join("\n");
+        await sendTelegram(env, text, env.ADMIN_CHAT_ID || env.TELEGRAM_CHAT_ID);
+        return new Response("ok");
+      }
+
+      if (url.pathname === "/test-channel") {
+        await sendTelegram(env, "🧪 Test canale — bot operativo");
+        return new Response("ok");
+      }
+
+      if (url.pathname === "/test-bot") {
+        await sendTelegram(env, "🧪 Test bot — notifiche admin operative", env.ADMIN_CHAT_ID || env.TELEGRAM_CHAT_ID);
+        return new Response("ok");
+      }
+
+      if (url.pathname === "/webhook" && request.method === "POST") {
+        const update = await request.json() as {
+          message?: { chat: { id: number }; text?: string };
+        };
+        const message = update.message;
+        if (!message) return new Response("ok");
+
+        const chatId = String(message.chat.id);
+        const adminId = env.ADMIN_CHAT_ID || env.TELEGRAM_CHAT_ID;
+
+        // Only respond to the authorized admin chat
+        if (chatId !== adminId) return new Response("ok");
+
+        const text = (message.text ?? "").split(" ")[0].toLowerCase();
+
+        if (text === "/status") {
+          const [state, paused, last] = await Promise.all([readState(env), isPaused(env), readLastSuccess(env)]);
+          const version = env.DEPLOY_VERSION ?? "unknown";
+          await sendTelegram(env, [
+            `📊 Status PL Via Dega`,
+            `Versione: ${version}`,
+            `Monitoring: ${paused ? "⏸ sospeso" : "▶️ attivo"}`,
+            `PL state: ${state ?? "sconosciuto"}`,
+            `Ultima chiamata VT: ${formatLastSuccess(last)}`,
+          ].join("\n"), chatId);
+        } else if (text === "/pause") {
+          await setPaused(env, true);
+          await sendTelegram(env, "⏸ Monitoring sospeso", chatId);
+          console.log("[webhook] monitoring sospeso");
+        } else if (text === "/resume") {
+          await setPaused(env, false);
+          await sendTelegram(env, "▶️ Monitoring ripreso", chatId);
+          console.log("[webhook] monitoring ripreso");
+        } else if (text === "/start") {
+          await sendTelegram(env, [
+            `🤖 PL Via Dega Monitor`,
+            ``,
+            `/status — stato attuale`,
+            `/pause  — sospendi monitoring`,
+            `/resume — riprendi monitoring`,
+          ].join("\n"), chatId);
+        }
+
+        return new Response("ok");
+      }
+
+    } catch (err) {
+      console.error("[http] errore:", String(err));
+      return new Response(String(err), { status: 500 });
     }
+
     return new Response("not found", { status: 404 });
   },
 
@@ -48,8 +145,15 @@ export default {
       return;
     }
 
+    if (await isPaused(env)) {
+      console.log("[skip] monitoring sospeso");
+      return;
+    }
+
     try {
+      const t0 = Date.now();
       const departures = await fetchPartenze(env.NICHELINO_CODE, env);
+      await writeLastSuccess(env, t0, Date.now() - t0);
       console.log(`[cycle] treni SFM2 trovati: ${departures.length}`);
 
       for (const train of departures) {
