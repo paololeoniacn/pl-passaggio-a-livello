@@ -31,4 +31,7 @@ TRAIN_CATEGORIES = "REG,RV"
 # Proxy for ViaggiaTreno WAF bypass — set to your Fly.io proxy URL after deploy.
 # Leave empty to call ViaggiaTreno directly (local dev / direct mode).
 # PROXY_SECRET must be set via: wrangler secret put PROXY_SECRET
-PROXY_URL = ""
+PROXY_URL = "https://unileo.alwaysdata.net/proxy.php"
+
+# Set automatically by handle_project.sh deploy — do not edit manually
+DEPLOY_VERSION = "67fba07"

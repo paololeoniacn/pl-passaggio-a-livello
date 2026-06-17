@@ -25,8 +25,11 @@ export interface WorkerEnv {
 
   // Proxy config — set PROXY_URL to route VT requests through a non-cloud IP.
   // Leave empty or unset to call ViaggiaTreno directly (local dev / direct mode).
-  PROXY_URL?: string;    // e.g. "https://pl-proxy.fly.dev"
+  PROXY_URL?: string;    // e.g. "https://username.alwaysdata.net/proxy.php"
   PROXY_SECRET?: string; // secret via `wrangler secret put PROXY_SECRET`
+
+  // Set automatically by handle_project.sh deploy (git short hash)
+  DEPLOY_VERSION?: string;
 }
 
 /**

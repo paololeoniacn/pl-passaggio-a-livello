@@ -47,17 +47,17 @@ async function vtFetch<T>(url: string, env: WorkerEnv): Promise<T> {
  * Fetches trains departing from `stationCode` and filters by
  * categories defined in `env.TRAIN_CATEGORIES` (e.g. "REG,RV").
  *
- * Used to enumerate active SFM2 trains to check via andamentoTreno.
+ * Used to enumerate active SFM2 trains passing through the target station.
+ * SFM2 trains originate from Chivasso/Torino, so partenze at Nichelino
+ * shows passing trains, not just trains originating there.
  */
 export async function fetchPartenze(
   stationCode: string,
   env: WorkerEnv
 ): Promise<VTPartenza[]> {
-  // API expects a human-readable datetime string, not epoch ms
-  const timestamp = encodeURIComponent(
-    new Date().toLocaleString("it-IT", { timeZone: "Europe/Rome" })
-  );
-  const url = `${BASE_URL}/partenze/${stationCode}/${timestamp}`;
+  // VT partenze requires a JS Date.toString()-style string, NOT epoch ms.
+  // epoch ms → HTTP 400; Date.toString() format ("Wed Jun 17 2026 15:58:00 GMT+0000 ...") → HTTP 200.
+  const url = `${BASE_URL}/partenze/${stationCode}/${encodeURIComponent(new Date().toString())}`;
 
   const raw = await vtFetch<VTPartenza[]>(url, env);
   const categories = env.TRAIN_CATEGORIES.split(",");
