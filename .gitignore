@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Cloudflare Workers
+.wrangler/
+.dev.vars
+
+# Build output
+dist/
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# BMad — piani temporanei
+.claude/plans/
+
+# BMad — output di sessione (opzionale: rimuovi se vuoi versionare il brief)
+# _bmad-output/

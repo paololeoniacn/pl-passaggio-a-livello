@@ -1,0 +1,71 @@
+import type { VTAndamento, VTPartenza, WorkerEnv } from "../types";
+
+const BASE_URL =
+  "http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno";
+
+async function vtFetch<T>(url: string): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        Referer: "http://www.viaggiatreno.it/",
+      },
+    });
+  } catch (err) {
+    throw new Error(`ViaggiaTreno network error: ${url} — ${String(err)}`);
+  }
+
+  if (!res.ok) {
+    throw new Error(`ViaggiaTreno HTTP ${res.status}: ${url}`);
+  }
+
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    throw new Error(`ViaggiaTreno parse error (non-JSON response): ${url}`);
+  }
+
+  return json as T;
+}
+
+/**
+ * Fetches trains departing from `stationCode` and filters by
+ * categories defined in `env.TRAIN_CATEGORIES` (e.g. "REG,RV").
+ *
+ * Used to enumerate active SFM2 trains to check via andamentoTreno.
+ */
+export async function fetchPartenze(
+  stationCode: string,
+  env: WorkerEnv
+): Promise<VTPartenza[]> {
+  // API expects a human-readable datetime string, not epoch ms
+  const timestamp = encodeURIComponent(
+    new Date().toLocaleString("it-IT", { timeZone: "Europe/Rome" })
+  );
+  const url = `${BASE_URL}/partenze/${stationCode}/${timestamp}`;
+
+  const raw = await vtFetch<VTPartenza[]>(url);
+  const categories = env.TRAIN_CATEGORIES.split(",");
+  return raw.filter((t) => categories.includes(t.categoria));
+}
+
+/**
+ * Fetches the real-time progress of a specific train.
+ * Returns stop list with actual timestamps where the train has already passed.
+ *
+ * @param originCode - Origin station S-code (e.g. "S01700")
+ * @param trainNumber - Train number (e.g. 3041)
+ * @param departureDateMs - Midnight of departure date in Europe/Rome (ms epoch)
+ *                          Use getRomeMidnightMs() from utils/timezone.ts
+ */
+export async function fetchAndamentoTreno(
+  originCode: string,
+  trainNumber: number,
+  departureDateMs: number
+): Promise<VTAndamento> {
+  const url = `${BASE_URL}/andamentoTreno/${originCode}/${trainNumber}/${departureDateMs}`;
+  return vtFetch<VTAndamento>(url);
+}

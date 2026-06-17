@@ -1,0 +1,29 @@
+name = "pl-passaggio-a-livello"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+[triggers]
+crons = ["*/1 * * * *"]
+
+[[kv_namespaces]]
+binding = "PL_STATE"
+id = "5f71f6e845b94c768ca54eea87afb8f4"
+
+[vars]
+# Telegram channel ID (get via @userinfobot)
+TELEGRAM_CHAT_ID = "-1004492876973"
+
+# Station codes — discover via:
+# curl "http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/autocompletaStazione/nichelino"
+# curl "http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/autocompletaStazione/candiolo"
+NICHELINO_CODE = "S00511"
+CANDIOLO_CODE = "S00512"
+
+# Active hours (Europe/Rome timezone), format: integer hour (0-23)
+ACTIVE_HOURS_START = "7"
+ACTIVE_HOURS_END = "21"
+
+# Train categories to monitor (comma-separated, no spaces)
+# REG = Regionale, RV = Regionale Veloce — covers SFM2 trains
+# Exclude: IC (Intercity), FR (Freccia), EC (EuroCity)
+TRAIN_CATEGORIES = "REG,RV"
