@@ -22,6 +22,11 @@ export interface WorkerEnv {
 
   // Comma-separated train categories to monitor (e.g. "REG,RV")
   TRAIN_CATEGORIES: string;
+
+  // Proxy config — set PROXY_URL to route VT requests through a non-cloud IP.
+  // Leave empty or unset to call ViaggiaTreno directly (local dev / direct mode).
+  PROXY_URL?: string;    // e.g. "https://pl-proxy.fly.dev"
+  PROXY_SECRET?: string; // secret via `wrangler secret put PROXY_SECRET`
 }
 
 /**

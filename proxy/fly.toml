@@ -1,0 +1,15 @@
+app = "pl-passaggio-a-livello-proxy"
+primary_region = "fra"  # Frankfurt — closest to viaggiatreno.it (Italy)
+
+[build]
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0  # scale to zero when idle — free tier friendly
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

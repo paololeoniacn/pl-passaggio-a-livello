@@ -3,16 +3,28 @@ import type { VTAndamento, VTPartenza, WorkerEnv } from "../types";
 const BASE_URL =
   "http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno";
 
-async function vtFetch<T>(url: string): Promise<T> {
+const BROWSER_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
+
+async function vtFetch<T>(url: string, env: WorkerEnv): Promise<T> {
+  const proxyUrl = env.PROXY_URL;
+  const target =
+    proxyUrl
+      ? `${proxyUrl}?url=${encodeURIComponent(url)}`
+      : url;
+
+  const headers: Record<string, string> = {
+    "User-Agent": BROWSER_UA,
+    Referer: "http://www.viaggiatreno.it/",
+  };
+
+  if (proxyUrl && env.PROXY_SECRET) {
+    headers["X-Proxy-Secret"] = env.PROXY_SECRET;
+  }
+
   let res: Response;
   try {
-    res = await fetch(url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        Referer: "http://www.viaggiatreno.it/",
-      },
-    });
+    res = await fetch(target, { headers });
   } catch (err) {
     throw new Error(`ViaggiaTreno network error: ${url} — ${String(err)}`);
   }
@@ -47,7 +59,7 @@ export async function fetchPartenze(
   );
   const url = `${BASE_URL}/partenze/${stationCode}/${timestamp}`;
 
-  const raw = await vtFetch<VTPartenza[]>(url);
+  const raw = await vtFetch<VTPartenza[]>(url, env);
   const categories = env.TRAIN_CATEGORIES.split(",");
   return raw.filter((t) => categories.includes(t.categoria));
 }
@@ -64,8 +76,9 @@ export async function fetchPartenze(
 export async function fetchAndamentoTreno(
   originCode: string,
   trainNumber: number,
-  departureDateMs: number
+  departureDateMs: number,
+  env: WorkerEnv
 ): Promise<VTAndamento> {
   const url = `${BASE_URL}/andamentoTreno/${originCode}/${trainNumber}/${departureDateMs}`;
-  return vtFetch<VTAndamento>(url);
+  return vtFetch<VTAndamento>(url, env);
 }

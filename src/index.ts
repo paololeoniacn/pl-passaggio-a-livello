@@ -28,7 +28,8 @@ export default {
         const andamento = await fetchAndamentoTreno(
           train.codOrigine,
           train.numeroTreno,
-          getRomeMidnightMs()
+          getRomeMidnightMs(),
+          env
         );
 
         const approaching = isApproaching(andamento, env);

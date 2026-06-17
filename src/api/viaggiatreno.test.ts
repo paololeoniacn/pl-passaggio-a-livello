@@ -176,26 +176,26 @@ describe("fetchAndamentoTreno", () => {
 
   it("returns VTAndamento with fermate array", async () => {
     mockFetch(mockAndamento);
-    const result = await fetchAndamentoTreno("S01700", 3041, 1750000000000);
+    const result = await fetchAndamentoTreno("S01700", 3041, 1750000000000, makeEnv());
     expect(result.numeroTreno).toBe(3041);
     expect(result.fermate).toHaveLength(2);
   });
 
   it("handles effettiva null without TypeError", async () => {
     mockFetch(mockAndamento);
-    const result = await fetchAndamentoTreno("S01700", 3041, 1750000000000);
+    const result = await fetchAndamentoTreno("S01700", 3041, 1750000000000, makeEnv());
     expect(result.fermate[1].effettiva).toBeNull();
   });
 
   it("handles arrivoReale null without TypeError", async () => {
     mockFetch(mockAndamento);
-    const result = await fetchAndamentoTreno("S01700", 3041, 1750000000000);
+    const result = await fetchAndamentoTreno("S01700", 3041, 1750000000000, makeEnv());
     expect(result.fermate[0].arrivoReale).toBeNull();
   });
 
   it("handles nullable subTitle without TypeError", async () => {
     mockFetch(mockAndamento);
-    const result = await fetchAndamentoTreno("S01700", 3041, 1750000000000);
+    const result = await fetchAndamentoTreno("S01700", 3041, 1750000000000, makeEnv());
     expect(result.subTitle).toBeNull();
   });
 
@@ -206,7 +206,7 @@ describe("fetchAndamentoTreno", () => {
       json: async () => mockAndamento,
     });
     vi.stubGlobal("fetch", spy);
-    await fetchAndamentoTreno("S01700", 3041, 1750000000000);
+    await fetchAndamentoTreno("S01700", 3041, 1750000000000, makeEnv());
     expect(spy.mock.calls[0][0]).toBe(
       "http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/andamentoTreno/S01700/3041/1750000000000"
     );
@@ -215,14 +215,14 @@ describe("fetchAndamentoTreno", () => {
   it("throws typed Error on HTTP 403", async () => {
     mockFetch({}, 403);
     await expect(
-      fetchAndamentoTreno("S01700", 3041, 1750000000000)
+      fetchAndamentoTreno("S01700", 3041, 1750000000000, makeEnv())
     ).rejects.toThrow("ViaggiaTreno HTTP 403");
   });
 
   it("throws typed Error on non-JSON response", async () => {
     mockFetchBadJson(200);
     await expect(
-      fetchAndamentoTreno("S01700", 3041, 1750000000000)
+      fetchAndamentoTreno("S01700", 3041, 1750000000000, makeEnv())
     ).rejects.toThrow("ViaggiaTreno parse error");
   });
 });

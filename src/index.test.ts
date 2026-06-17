@@ -212,7 +212,8 @@ describe("scheduled handler — API wiring", () => {
     expect(fetchAndamentoTreno).toHaveBeenCalledWith(
       fakeTrain.codOrigine,
       fakeTrain.numeroTreno,
-      1750000000000
+      1750000000000,
+      makeEnv()
     );
   });
 

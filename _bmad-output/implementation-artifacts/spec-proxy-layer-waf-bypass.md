@@ -2,7 +2,8 @@
 title: 'Proxy Layer WAF Bypass'
 type: 'feature'
 created: '2026-06-17'
-status: 'draft'
+status: 'done'
+baseline_commit: 'NO_VCS'
 context: []
 ---
 
@@ -57,15 +58,15 @@ context: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/types.ts` -- aggiungere `PROXY_URL?: string` e `PROXY_SECRET?: string` a `WorkerEnv` -- i nuovi env binding devono essere tipizzati
-- [ ] `src/api/viaggiatreno.ts` -- aggiungere parametro `env: WorkerEnv` a `vtFetch` e `fetchAndamentoTreno`; routare via `${env.PROXY_URL}?url=${encodeURIComponent(url)}` con header `X-Proxy-Secret` quando `env.PROXY_URL` è definita e non vuota -- bypass WAF
-- [ ] `wrangler.toml` -- aggiungere `PROXY_URL = ""` in `[vars]` con commento -- placeholder vuoto = modalità diretta
-- [ ] `.dev.vars.example` -- aggiungere `PROXY_SECRET=changeme` e commento su `PROXY_URL` -- documentare le nuove variabili
-- [ ] `proxy/index.js` -- nuovo server HTTP Node.js ESM: GET `/?url=<encoded>`, valida prefisso VT, valida `X-Proxy-Secret` vs `process.env.PROXY_SECRET`, forwarda con User-Agent browser, ritorna JSON -- cuore del proxy
-- [ ] `proxy/package.json` -- nuovo: `{"type":"module","scripts":{"start":"node index.js"}}` -- runtime ESM
-- [ ] `proxy/fly.toml` -- nuovo: `app = "pl-passaggio-a-livello-proxy"`, `[http_service] internal_port = 8080` -- deploy Fly.io
-- [ ] `proxy/Dockerfile` -- nuovo: `FROM node:20-alpine`, copia `index.js` e `package.json`, `CMD ["node","index.js"]` -- containerizzazione
-- [ ] `proxy/proxy.php` -- nuovo: fallback PHP Alwaysdata, valida prefisso VT, valida header secret, `file_get_contents` con User-Agent -- alternativa se Fly.io è bloccato
+- [x] `src/types.ts` -- aggiungere `PROXY_URL?: string` e `PROXY_SECRET?: string` a `WorkerEnv` -- i nuovi env binding devono essere tipizzati
+- [x] `src/api/viaggiatreno.ts` -- aggiungere parametro `env: WorkerEnv` a `vtFetch` e `fetchAndamentoTreno`; routare via `${env.PROXY_URL}?url=${encodeURIComponent(url)}` con header `X-Proxy-Secret` quando `env.PROXY_URL` è definita e non vuota -- bypass WAF
+- [x] `wrangler.toml` -- aggiungere `PROXY_URL = ""` in `[vars]` con commento -- placeholder vuoto = modalità diretta
+- [x] `.dev.vars.example` -- aggiungere `PROXY_SECRET=changeme` e commento su `PROXY_URL` -- documentare le nuove variabili
+- [x] `proxy/index.js` -- nuovo server HTTP Node.js ESM: GET `/?url=<encoded>`, valida prefisso VT, valida `X-Proxy-Secret` vs `process.env.PROXY_SECRET`, forwarda con User-Agent browser, ritorna JSON -- cuore del proxy
+- [x] `proxy/package.json` -- nuovo: `{"type":"module","scripts":{"start":"node index.js"}}` -- runtime ESM
+- [x] `proxy/fly.toml` -- nuovo: `app = "pl-passaggio-a-livello-proxy"`, `[http_service] internal_port = 8080` -- deploy Fly.io
+- [x] `proxy/Dockerfile` -- nuovo: `FROM node:20-alpine`, copia `index.js` e `package.json`, `CMD ["node","index.js"]` -- containerizzazione
+- [x] `proxy/proxy.php` -- nuovo: fallback PHP Alwaysdata, valida prefisso VT, valida header secret, `file_get_contents` con User-Agent -- alternativa se Fly.io è bloccato
 
 **Acceptance Criteria:**
 - Given `PROXY_URL` vuota, when il Worker chiama `fetchPartenze`, then la chiamata va direttamente a `www.viaggiatreno.it` senza header `X-Proxy-Secret`
