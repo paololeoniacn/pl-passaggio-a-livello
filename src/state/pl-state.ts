@@ -4,6 +4,19 @@ const KEY_PL_STATE = "pl_state";
 const KEY_ERROR_COUNT = "error_count";
 const KEY_PAUSED = "monitoring_paused";
 const KEY_LAST_SUCCESS = "last_success";
+const KEY_CONFIG_PREFIX = "cfg_";
+
+// Allowed runtime config keys settable via /set
+export const CONFIG_KEYS = ["write_interval"] as const;
+export type ConfigKey = typeof CONFIG_KEYS[number];
+
+export async function readConfig(env: WorkerEnv, key: ConfigKey): Promise<string | null> {
+  return env.PL_STATE.get(`${KEY_CONFIG_PREFIX}${key}`);
+}
+
+export async function writeConfig(env: WorkerEnv, key: ConfigKey, value: string): Promise<void> {
+  await env.PL_STATE.put(`${KEY_CONFIG_PREFIX}${key}`, value);
+}
 
 /**
  * Reads the current level crossing state from KV.
@@ -47,9 +60,13 @@ export async function incrementErrorCount(env: WorkerEnv): Promise<number> {
 /**
  * Resets the consecutive error counter to zero.
  * Call this after a successful monitoring cycle.
+ * No-op if already zero to avoid unnecessary KV writes.
  */
 export async function resetErrorCount(env: WorkerEnv): Promise<void> {
-  await env.PL_STATE.put(KEY_ERROR_COUNT, "0", { expirationTtl: 3600 });
+  const current = await env.PL_STATE.get(KEY_ERROR_COUNT);
+  if (current !== null && current !== "0") {
+    await env.PL_STATE.put(KEY_ERROR_COUNT, "0", { expirationTtl: 3600 });
+  }
 }
 
 /**

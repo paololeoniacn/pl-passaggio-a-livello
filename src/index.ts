@@ -2,12 +2,16 @@ import { fetchAndamentoTreno, fetchPartenze } from "./api/viaggiatreno";
 import { isApproaching } from "./detector/approach";
 import { sendTelegram } from "./notifier/telegram";
 import {
+  CONFIG_KEYS,
+  type ConfigKey,
   incrementErrorCount,
   isPaused,
+  readConfig,
   readLastSuccess,
   readState,
   resetErrorCount,
   setPaused,
+  writeConfig,
   writeLastSuccess,
   writeState,
 } from "./state/pl-state";
@@ -94,33 +98,55 @@ export default {
         // Only respond to the authorized admin chat
         if (chatId !== adminId) return new Response("ok");
 
-        const text = (message.text ?? "").split(" ")[0].toLowerCase();
+        const parts = (message.text ?? "").trim().split(/\s+/);
+        const text = parts[0].toLowerCase();
 
         if (text === "/status") {
-          const [state, paused, last] = await Promise.all([readState(env), isPaused(env), readLastSuccess(env)]);
+          const [state, paused, last, rawInterval] = await Promise.all([
+            readState(env), isPaused(env), readLastSuccess(env),
+            readConfig(env, "write_interval"),
+          ]);
           const version = env.DEPLOY_VERSION ?? "unknown";
+          const writeInterval = rawInterval ?? "5";
           await sendTelegram(env, [
             `📊 Status PL Via Dega`,
             `Versione: ${version}`,
             `Monitoring: ${paused ? "⏸ sospeso" : "▶️ attivo"}`,
             `PL state: ${state ?? "sconosciuto"}`,
             `Ultima chiamata VT: ${formatLastSuccess(last)}`,
+            `write_interval: ${writeInterval} min`,
           ].join("\n"), chatId);
-        } else if (text === "/pause") {
+        } else if (text === "/stop" || text === "/pause") {
           await setPaused(env, true);
           await sendTelegram(env, "⏸ Monitoring sospeso", chatId);
           console.log("[webhook] monitoring sospeso");
-        } else if (text === "/resume") {
+        } else if (text === "/riavvia" || text === "/resume") {
           await setPaused(env, false);
           await sendTelegram(env, "▶️ Monitoring ripreso", chatId);
           console.log("[webhook] monitoring ripreso");
+        } else if (text === "/set") {
+          const key = parts[1] as ConfigKey | undefined;
+          const value = parts[2];
+          if (!key || !value || !(CONFIG_KEYS as readonly string[]).includes(key)) {
+            await sendTelegram(env, [
+              `❌ Uso: /set <chiave> <valore>`,
+              `Chiavi valide: ${CONFIG_KEYS.join(", ")}`,
+            ].join("\n"), chatId);
+          } else {
+            await writeConfig(env, key, value);
+            await sendTelegram(env, `✅ ${key} = ${value}`, chatId);
+            console.log(`[webhook] config set: ${key}=${value}`);
+          }
         } else if (text === "/start") {
           await sendTelegram(env, [
             `🤖 PL Via Dega Monitor`,
             ``,
-            `/status — stato attuale`,
-            `/pause  — sospendi monitoring`,
-            `/resume — riprendi monitoring`,
+            `/status       — stato attuale`,
+            `/stop         — sospendi monitoring`,
+            `/riavvia      — riprendi monitoring`,
+            `/set <k> <v>  — imposta parametro`,
+            ``,
+            `Parametri: ${CONFIG_KEYS.join(", ")}`,
           ].join("\n"), chatId);
         }
 
@@ -153,7 +179,12 @@ export default {
     try {
       const t0 = Date.now();
       const departures = await fetchPartenze(env.NICHELINO_CODE, env);
-      await writeLastSuccess(env, t0, Date.now() - t0);
+      // Write at most once every N minutes to stay under KV write limits.
+      const rawInterval = await readConfig(env, "write_interval");
+      const writeInterval = rawInterval ? Math.max(1, parseInt(rawInterval, 10)) : 5;
+      if (new Date().getMinutes() % writeInterval === 0) {
+        await writeLastSuccess(env, t0, Date.now() - t0);
+      }
       console.log(`[cycle] treni SFM2 trovati: ${departures.length}`);
 
       for (const train of departures) {

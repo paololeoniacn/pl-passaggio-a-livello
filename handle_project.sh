@@ -444,9 +444,10 @@ else:
       -d '{
         "commands": [
           {"command": "status",  "description": "Stato attuale PL e monitoring"},
-          {"command": "pause",   "description": "Sospendi monitoring"},
-          {"command": "resume",  "description": "Riprendi monitoring"},
-          {"command": "start",   "description": "Avvia il bot"}
+          {"command": "stop",    "description": "Sospendi monitoring"},
+          {"command": "riavvia", "description": "Riprendi monitoring"},
+          {"command": "set",     "description": "Imposta parametro (es. write_interval 10)"},
+          {"command": "start",   "description": "Avvia il bot / lista comandi"}
         ]
       }' | python3 -c "
 import json,sys

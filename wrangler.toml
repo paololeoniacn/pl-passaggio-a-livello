@@ -34,4 +34,4 @@ TRAIN_CATEGORIES = "REG,RV"
 PROXY_URL = "https://unileo.alwaysdata.net/proxy.php"
 
 # Set automatically by handle_project.sh deploy — do not edit manually
-DEPLOY_VERSION = "1edb3b5"
+DEPLOY_VERSION = "554b05d"

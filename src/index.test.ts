@@ -27,6 +27,9 @@ vi.mock("./state/pl-state", () => ({
   setPaused: vi.fn(),
   writeLastSuccess: vi.fn(),
   readLastSuccess: vi.fn().mockResolvedValue(null),
+  readConfig: vi.fn().mockResolvedValue(null),
+  writeConfig: vi.fn().mockResolvedValue(undefined),
+  CONFIG_KEYS: ["write_interval"],
 }));
 
 vi.mock("./utils/timezone", () => ({
