@@ -7,7 +7,7 @@ const KEY_LAST_SUCCESS = "last_success";
 const KEY_CONFIG_PREFIX = "cfg_";
 
 // Allowed runtime config keys settable via /set
-export const CONFIG_KEYS = ["write_interval"] as const;
+export const CONFIG_KEYS = ["write_interval", "active_hours"] as const;
 export type ConfigKey = typeof CONFIG_KEYS[number];
 
 export async function readConfig(env: WorkerEnv, key: ConfigKey): Promise<string | null> {

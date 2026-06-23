@@ -29,12 +29,12 @@ vi.mock("./state/pl-state", () => ({
   readLastSuccess: vi.fn().mockResolvedValue(null),
   readConfig: vi.fn().mockResolvedValue(null),
   writeConfig: vi.fn().mockResolvedValue(undefined),
-  CONFIG_KEYS: ["write_interval"],
+  CONFIG_KEYS: ["write_interval", "active_hours"],
 }));
 
 vi.mock("./utils/timezone", () => ({
   getRomeMidnightMs: vi.fn().mockReturnValue(1750000000000),
-  isActiveHour: vi.fn().mockReturnValue(true),
+  getRomeHour: vi.fn().mockReturnValue(10),
 }));
 
 import { fetchAndamentoTreno, fetchPartenze } from "./api/viaggiatreno";
@@ -44,9 +44,10 @@ import {
   incrementErrorCount,
   readState,
   resetErrorCount,
+  setPaused,
   writeState,
 } from "./state/pl-state";
-import { isActiveHour } from "./utils/timezone";
+import { getRomeHour } from "./utils/timezone";
 import handler from "./index";
 
 // ---------------------------------------------------------------------------
@@ -180,7 +181,7 @@ describe("scheduled handler — state transitions", () => {
 
 describe("scheduled handler — active hours gate", () => {
   it("exits early without calling fetchPartenze when outside active hours", async () => {
-    vi.mocked(isActiveHour).mockReturnValue(false);
+    vi.mocked(getRomeHour).mockReturnValue(3); // outside 5-23
 
     await runScheduled(makeEnv());
 
@@ -189,7 +190,7 @@ describe("scheduled handler — active hours gate", () => {
   });
 
   it("proceeds normally when inside active hours", async () => {
-    vi.mocked(isActiveHour).mockReturnValue(true);
+    vi.mocked(getRomeHour).mockReturnValue(10); // inside 5-23
     vi.mocked(isApproaching).mockReturnValue(false);
     vi.mocked(readState).mockResolvedValue("OPEN");
 
@@ -275,35 +276,28 @@ describe("scheduled handler — error self-notification", () => {
     expect(sendTelegram).not.toHaveBeenCalled();
   });
 
-  it("sends admin alert on 3rd consecutive error", async () => {
+  it("on 3rd consecutive error: pauses monitoring and sends one admin alert", async () => {
     vi.mocked(fetchPartenze).mockRejectedValue(new Error("API error"));
     vi.mocked(incrementErrorCount).mockResolvedValue(3);
 
     await runScheduled(makeEnv());
 
+    expect(setPaused).toHaveBeenCalledWith(expect.anything(), true);
+    expect(sendTelegram).toHaveBeenCalledOnce();
     expect(sendTelegram).toHaveBeenCalledWith(
       expect.anything(),
       expect.stringContaining("🔴"),
       makeEnv().ADMIN_CHAT_ID
     );
-    expect(sendTelegram).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.stringContaining("#3"),
-      expect.anything()
-    );
   });
 
-  it("sends admin alert on 4th+ consecutive error", async () => {
+  it("on 4th+ consecutive error: does NOT send another alert (already paused)", async () => {
     vi.mocked(fetchPartenze).mockRejectedValue(new Error("API error"));
     vi.mocked(incrementErrorCount).mockResolvedValue(7);
 
     await runScheduled(makeEnv());
 
-    expect(sendTelegram).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.stringContaining("🔴"),
-      makeEnv().ADMIN_CHAT_ID
-    );
+    expect(sendTelegram).not.toHaveBeenCalled();
   });
 
   it("does not throw even if sendTelegram admin alert fails", async () => {
@@ -332,5 +326,94 @@ describe("scheduled handler — multi-train", () => {
 
     expect(sendTelegram).toHaveBeenCalledTimes(1);
     expect(writeState).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Webhook handler tests
+// ---------------------------------------------------------------------------
+
+const ADMIN_ID = 34750891;
+
+function makeRequest(text: string, chatId = ADMIN_ID): Request {
+  return new Request("https://worker.dev/webhook", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      update_id: 1,
+      message: {
+        message_id: 1,
+        from: { id: chatId, is_bot: false, first_name: "Test" },
+        chat: { id: chatId, type: "private" },
+        date: 1700000000,
+        text,
+      },
+    }),
+  });
+}
+
+function runWebhook(req: Request, env?: Partial<WorkerEnv>): Promise<Response> {
+  return handler.fetch(req, { ...makeEnv(), ADMIN_CHAT_ID: String(ADMIN_ID), ...env }, {} as ExecutionContext);
+}
+
+describe("webhook — /riavvia resets error count", () => {
+  it("calls resetErrorCount and setPaused(false) on /riavvia", async () => {
+    await runWebhook(makeRequest("/riavvia"));
+
+    expect(setPaused).toHaveBeenCalledWith(expect.anything(), false);
+    expect(resetErrorCount).toHaveBeenCalledOnce();
+    expect(sendTelegram).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining("▶️"),
+      String(ADMIN_ID)
+    );
+  });
+});
+
+describe("webhook — /set active_hours validation", () => {
+  it("accepts valid format 5-23", async () => {
+    await runWebhook(makeRequest("/set active_hours 5-23"));
+
+    expect(sendTelegram).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining("✅"),
+      String(ADMIN_ID)
+    );
+  });
+
+  it("rejects invalid format (letters)", async () => {
+    await runWebhook(makeRequest("/set active_hours abc"));
+
+    expect(sendTelegram).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining("❌"),
+      String(ADMIN_ID)
+    );
+  });
+
+  it("rejects start >= end (e.g. 10-5)", async () => {
+    await runWebhook(makeRequest("/set active_hours 10-5"));
+
+    expect(sendTelegram).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining("❌"),
+      String(ADMIN_ID)
+    );
+  });
+
+  it("rejects out-of-range values (e.g. 5-25)", async () => {
+    await runWebhook(makeRequest("/set active_hours 5-25"));
+
+    expect(sendTelegram).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining("❌"),
+      String(ADMIN_ID)
+    );
+  });
+
+  it("ignores messages from non-admin chat", async () => {
+    await runWebhook(makeRequest("/set active_hours 5-23", 999999));
+
+    expect(sendTelegram).not.toHaveBeenCalled();
   });
 });

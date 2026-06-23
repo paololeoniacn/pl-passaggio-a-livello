@@ -16,7 +16,7 @@ import {
   writeState,
 } from "./state/pl-state";
 import type { WorkerEnv } from "./types";
-import { getRomeMidnightMs, isActiveHour } from "./utils/timezone";
+import { getRomeHour, getRomeMidnightMs } from "./utils/timezone";
 
 const STATE_TTL = 900; // seconds (15 min)
 const ERROR_ALERT_THRESHOLD = 3;
@@ -39,9 +39,10 @@ export default {
       if (url.pathname === "/startup") {
         const version = env.DEPLOY_VERSION ?? "unknown";
         const chatId = env.ADMIN_CHAT_ID || env.TELEGRAM_CHAT_ID;
+        await setPaused(env, true);
         await sendTelegram(
           env,
-          `🟢 Worker live — versione ${version}\nProssimo ciclo: tra ~1 min`,
+          `🟡 Worker live — versione ${version}\n⏸ Monitoring sospeso\nManda /riavvia per avviare`,
           chatId
         );
         return new Response("ok");
@@ -102,18 +103,21 @@ export default {
         const text = parts[0].toLowerCase();
 
         if (text === "/status") {
-          const [state, paused, last, rawInterval] = await Promise.all([
+          const [state, paused, last, rawInterval, rawHours] = await Promise.all([
             readState(env), isPaused(env), readLastSuccess(env),
             readConfig(env, "write_interval"),
+            readConfig(env, "active_hours"),
           ]);
           const version = env.DEPLOY_VERSION ?? "unknown";
-          const writeInterval = rawInterval ?? "5";
+          const writeInterval = rawInterval ?? "10";
+          const activeHours = rawHours ?? `${env.ACTIVE_HOURS_START}-${env.ACTIVE_HOURS_END}`;
           await sendTelegram(env, [
             `📊 Status PL Via Dega`,
             `Versione: ${version}`,
             `Monitoring: ${paused ? "⏸ sospeso" : "▶️ attivo"}`,
             `PL state: ${state ?? "sconosciuto"}`,
             `Ultima chiamata VT: ${formatLastSuccess(last)}`,
+            `Orario attivo: ${activeHours}`,
             `write_interval: ${writeInterval} min`,
           ].join("\n"), chatId);
         } else if (text === "/stop" || text === "/pause") {
@@ -122,6 +126,7 @@ export default {
           console.log("[webhook] monitoring sospeso");
         } else if (text === "/riavvia" || text === "/resume") {
           await setPaused(env, false);
+          await resetErrorCount(env);
           await sendTelegram(env, "▶️ Monitoring ripreso", chatId);
           console.log("[webhook] monitoring ripreso");
         } else if (text === "/set") {
@@ -131,7 +136,19 @@ export default {
             await sendTelegram(env, [
               `❌ Uso: /set <chiave> <valore>`,
               `Chiavi valide: ${CONFIG_KEYS.join(", ")}`,
+              `Esempio: /set active_hours 6-22`,
             ].join("\n"), chatId);
+          } else if (key === "active_hours") {
+            const m = value.match(/^(\d{1,2})-(\d{1,2})$/);
+            const s = m ? parseInt(m[1], 10) : -1;
+            const e = m ? parseInt(m[2], 10) : -1;
+            if (!m || s < 0 || s > 23 || e < 0 || e > 23 || s >= e) {
+              await sendTelegram(env, `❌ active_hours: formato HH-HH, es. 5-23, valori 0-23, inizio < fine`, chatId);
+            } else {
+              await writeConfig(env, key, value);
+              await sendTelegram(env, `✅ active_hours = ${value}`, chatId);
+              console.log(`[webhook] config set: active_hours=${value}`);
+            }
           } else {
             await writeConfig(env, key, value);
             await sendTelegram(env, `✅ ${key} = ${value}`, chatId);
@@ -166,8 +183,16 @@ export default {
     env: WorkerEnv,
     _ctx: ExecutionContext
   ): Promise<void> {
-    if (!isActiveHour(env)) {
-      console.log("[skip] fuori orario attivo");
+    const rawHours = await readConfig(env, "active_hours");
+    let activeStart = parseInt(env.ACTIVE_HOURS_START, 10);
+    let activeEnd = parseInt(env.ACTIVE_HOURS_END, 10);
+    if (rawHours) {
+      const [s, e] = rawHours.split("-").map(Number);
+      if (!isNaN(s) && !isNaN(e)) { activeStart = s; activeEnd = e; }
+    }
+    const romeHour = getRomeHour();
+    if (romeHour < activeStart || romeHour >= activeEnd) {
+      console.log(`[skip] fuori orario attivo (ora=${romeHour}, finestra=${activeStart}-${activeEnd})`);
       return;
     }
 
@@ -225,10 +250,11 @@ export default {
       try {
         const count = await incrementErrorCount(env);
         console.error(`[error] contatore errori consecutivi: ${count}`);
-        if (count >= ERROR_ALERT_THRESHOLD) {
+        if (count === ERROR_ALERT_THRESHOLD) {
+          await setPaused(env, true);
           await sendTelegram(
             env,
-            `🔴 Errore consecutivo #${count} — controlla il worker`,
+            `🔴 ${ERROR_ALERT_THRESHOLD} errori consecutivi — monitoring sospeso\n${String(err)}\n\nManda /riavvia per riprendere`,
             env.ADMIN_CHAT_ID
           );
         }
