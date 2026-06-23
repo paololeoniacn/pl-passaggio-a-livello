@@ -181,11 +181,13 @@ export default {
       const departures = await fetchPartenze(env.NICHELINO_CODE, env);
       // Write at most once every N minutes to stay under KV write limits.
       const rawInterval = await readConfig(env, "write_interval");
-      const writeInterval = rawInterval ? Math.max(1, parseInt(rawInterval, 10)) : 5;
+      const writeInterval = rawInterval ? Math.max(1, parseInt(rawInterval, 10)) : 10;
       if (new Date().getMinutes() % writeInterval === 0) {
         await writeLastSuccess(env, t0, Date.now() - t0);
       }
       console.log(`[cycle] treni SFM2 trovati: ${departures.length}`);
+
+      let state = await readState(env);
 
       for (const train of departures) {
         const andamento = await fetchAndamentoTreno(
@@ -196,7 +198,6 @@ export default {
         );
 
         const approaching = isApproaching(andamento, env);
-        const state = await readState(env);
 
         console.log(
           `[train] ${train.numeroTreno} | approaching=${approaching} | state=${state ?? "null"} | delay=${andamento.ritardo}min`
@@ -204,6 +205,7 @@ export default {
 
         if (approaching && state !== "CLOSED") {
           await writeState(env, "CLOSED", STATE_TTL);
+          state = "CLOSED";
           await sendTelegram(
             env,
             "⚠️ Treno in avvicinamento — PL Via Dega potrebbe chiudersi"
@@ -211,6 +213,7 @@ export default {
           console.log(`[notify] ⚠️ inviata per treno ${train.numeroTreno}`);
         } else if (!approaching && state === "CLOSED") {
           await writeState(env, "OPEN", STATE_TTL);
+          state = "OPEN";
           await sendTelegram(env, "✅ Treno transitato — PL Via Dega libero");
           console.log(`[notify] ✅ inviata per treno ${train.numeroTreno}`);
         }

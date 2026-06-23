@@ -20,8 +20,8 @@ NICHELINO_CODE = "S00511"
 CANDIOLO_CODE = "S00512"
 
 # Active hours (Europe/Rome timezone), format: integer hour (0-23)
-ACTIVE_HOURS_START = "7"
-ACTIVE_HOURS_END = "21"
+ACTIVE_HOURS_START = "5"
+ACTIVE_HOURS_END = "23"
 
 # Train categories to monitor (comma-separated, no spaces)
 # REG = Regionale, RV = Regionale Veloce — covers SFM2 trains
@@ -34,4 +34,4 @@ TRAIN_CATEGORIES = "REG,RV"
 PROXY_URL = "https://unileo.alwaysdata.net/proxy.php"
 
 # Set automatically by handle_project.sh deploy — do not edit manually
-DEPLOY_VERSION = "554b05d"
+DEPLOY_VERSION = "3c5728a"
